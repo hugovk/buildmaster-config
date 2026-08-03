@@ -511,7 +511,7 @@ def get_builder_defs(settings):
     # Override with a simple default if we are using local workers
     if settings.use_local_worker:
         local_buildfactory = getattr(
-            factories, settings.local_worker_buildfactory, UnixBuild
+            factories, settings.get("local_worker_buildfactory", "UnixBuild"), UnixBuild
         )
         return [BuilderDef(
             "Test Builder",

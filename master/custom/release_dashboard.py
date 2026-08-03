@@ -21,6 +21,11 @@ from buildbot.data.resultspec import Filter
 import buildbot.process.results
 
 N_BUILDS = 200
+# Most builders are problem-free and need only a few builds fetched: the
+# 3 build-dots they show, and the latest interesting build's verdict.
+# Problem builders get the full N_BUILDS history (50 build-dots, plus the
+# search for the start of a failing streak).
+N_RECENT_BUILDS = 5
 MAX_CHANGES = 50
 
 
@@ -164,17 +169,39 @@ def cached_sorted_property(func=None, /, **sort_kwargs):
 class Builder(DashboardObject):
     @cached_property
     def builds(self):
+        builds = self._fetch_builds(N_RECENT_BUILDS)
+        if len(builds) == N_RECENT_BUILDS and not self._all_is_well(builds):
+            # Anything but proven-quiet needs the full history.
+            builds = self._fetch_builds(N_BUILDS)
+
+        return builds
+
+    def _fetch_builds(self, limit):
         endpoint = ("builders", self["builderid"], "builds")
         infos = self.dataGet(
             endpoint,
-            limit=N_BUILDS,
+            limit=limit,
             order=["-complete_at"],
             filters=[Filter("complete", "eq", ["True"])],
         )
-        builds = []
-        for info in infos:
-            builds.append(Build(self, info))
         return [Build(self, info) for info in infos]
+
+    def _all_is_well(self, builds):
+        """Do these latest builds prove problems() would find nothing?"""
+        if not self.connected_workers:
+            return False
+
+        for build in builds:
+            if build["results"] == buildbot.process.results.SUCCESS:
+                return True
+            if build["results"] in (
+                buildbot.process.results.WARNINGS,
+                buildbot.process.results.FAILURE,
+            ):
+                return False
+
+        # All skipped/interrupted: can't tell without more history
+        return False
 
     @cached_property
     def tags(self):
